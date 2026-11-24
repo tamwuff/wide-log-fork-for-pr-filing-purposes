@@ -256,6 +256,12 @@ async fn fetch_upstream() {
 `scope_default` uses `tokio::task_local!` so the event is available across
 `.await` points.
 
+The `scope()` family builds the event when the function is called, not on
+the first poll. The event ID and the start time for the duration are set
+at the call, and the event is emitted when the returned future completes
+or is dropped. A scope future that is dropped before it is polled still
+emits its event.
+
 ### Async with Multi-Threaded Runtime
 
 ```rust

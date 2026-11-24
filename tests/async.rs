@@ -556,10 +556,10 @@ async fn builder_with_preset_propagates_through_with_emit() {
 // ---- future size ----
 
 // The futures returned by the `scope()` family and by the middleware must
-// not store extra copies of the future they wrap. An `async fn` (or
-// `async` block) that awaits a future it took as an argument stores that
-// future twice: once as the captured argument and once as the awaited
-// value. These tests keep such a layer from coming back unnoticed.
+// store the future they wrap exactly once. An `async fn` (or `async`
+// block) that awaits a future it took as an argument stores that future
+// twice: once as the captured argument and once as the awaited value.
+// These tests keep such a layer from coming back unnoticed.
 
 const BIG_SIZE: usize = 4096;
 
@@ -638,8 +638,8 @@ fn scope_future_sizes() -> Vec<(&'static str, usize)> {
 }
 
 #[test]
-fn scope_futures_store_at_most_one_extra_copy_of_the_wrapped_future() {
-    let limit = 3 * BIG_SIZE;
+fn scope_futures_store_the_wrapped_future_once() {
+    let limit = BIG_SIZE + BIG_SIZE / 2;
     let too_big: Vec<_> = scope_future_sizes()
         .into_iter()
         .filter(|(_, size)| *size >= limit)
@@ -651,13 +651,26 @@ fn scope_futures_store_at_most_one_extra_copy_of_the_wrapped_future() {
 }
 
 #[test]
-fn scope_dropped_unpolled_does_not_emit() {
-    // The scope's setup runs on the first poll, so a scope future that is
-    // dropped before any poll builds no event and emits nothing.
+fn scope_dropped_unpolled_emits() {
+    // The scope's setup runs when `scope_with_defaults()` is called, so a
+    // scope future that is dropped before any poll has already built its
+    // event (ID, literal defaults, preset) and emits it on drop.
     let (slot, emit) = capture();
-    drop(scope(emit, async {}));
-    assert!(
-        slot.lock().unwrap().is_none(),
-        "an unpolled scope future must not emit an event"
-    );
+    drop(scope_with_defaults(
+        emit,
+        |ev| {
+            ev.add_path(&[EventKey::Status], "preset-ran");
+        },
+        async {},
+    ));
+    let json = slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("an unpolled scope future emits its event on drop");
+    let parsed: sonic_rs::Value = sonic_rs::from_str(&json).unwrap();
+    assert_eq!(parsed["status"], "preset-ran");
+    assert_eq!(parsed["service"]["version"], "1.0.0");
+    assert!(parsed["event"]["id"].is_str());
+    assert!(parsed["duration"]["total_ms"].is_number());
 }

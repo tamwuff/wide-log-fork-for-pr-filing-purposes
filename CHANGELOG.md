@@ -22,10 +22,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   future from 32936 to 8304 bytes. Callers that `.await` or spawn these
   functions need no change; behavior is unchanged.
 
+- **Breaking:** the async `scope()` family builds its event when the
+  function is called, not on the first poll of the returned future. The
+  event ID, the start time for the duration, the macro's literal
+  defaults, and the `preset` closure of `scope_with_defaults()` all run
+  at the call. A scope future that is dropped before its first poll now
+  emits its event; before, it emitted nothing. `WideLogLayer` is
+  affected in the same way: the event starts when the service is
+  called.
+- `scope()` and `scope_with_defaults()` are plain functions that return
+  a hand-written future (`wide_log::__macro_internals::ScopeFuture`)
+  and no longer `async fn`s, so the wrapped future is stored once. For
+  a 4096-byte wrapped future, every future of the `scope()` family and
+  the boxed middleware future is now 4184 bytes. Callers that `.await`
+  or spawn these functions need no change.
+- The generated `scope()` calls `scope_with_defaults()` with an empty
+  preset; the two no longer carry duplicate setup code.
+- If the wrapped future panics, the event is emitted when the scope
+  future is dropped, not during the unwind out of `poll`.
+- New optional dependency `pin-project-lite` 0.2, enabled by the
+  `tokio` feature. `tokio` already depends on it, so it adds no new
+  crate to the build.
+
 ### Added
 - Regression tests for the future sizes in `tests/async.rs` and
-  `src/hook_registry.rs`, and a test that pins the current behavior
-  that a `scope()` future dropped before its first poll emits no event.
+  `src/hook_registry.rs`, a test for the emit-on-unpolled-drop
+  behavior, and unit tests for `ScopeFuture` in `src/scope_future.rs`.
 
 ## [0.9.0] - 2026-11-19
 
